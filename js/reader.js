@@ -110,7 +110,8 @@ export class ReaderController {
     if (this.settings.readingMode === 'paginate') {
       this.content.classList.add('mode-paginate');
       this.content.classList.remove('mode-scroll');
-      this.content.style.transform = 'translateX(0px)';
+      this.content.style.transform = 'none';
+      this.content.scrollLeft = 0;
       this.calculatePagination();
       this.goToPage(this.currentPageIndex);
     } else {
@@ -134,8 +135,8 @@ export class ReaderController {
 
   goToPage(pageIdx) {
     this.currentPageIndex = Math.max(0, Math.min(pageIdx, this.totalPagesInChapter - 1));
-    const offset = -(this.currentPageIndex * this.content.clientWidth);
-    this.content.style.transform = `translateX(${offset}px)`;
+    this.content.style.transform = 'none';
+    this.content.scrollLeft = this.currentPageIndex * this.content.clientWidth;
     this.updateFooterInfo();
     this.haptic('selection_changed');
     this.saveProgress();
