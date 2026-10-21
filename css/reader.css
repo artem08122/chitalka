@@ -1072,3 +1072,13 @@ mark.book-highlight.color-blue { background-color: #bfdbfe; }
 .dialog-action-btn.danger {
   color: #ff453a;
 }
+
+/* Original PDF mode: free scrolling, no tap zones over the pages */
+.reader-view.orig-mode .tap-zone { display: none; }
+.pdf-original-container {
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  position: relative;
+  z-index: 1;
+}
