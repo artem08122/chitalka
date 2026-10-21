@@ -1076,9 +1076,13 @@ mark.book-highlight.color-blue { background-color: #bfdbfe; }
 /* Original PDF mode: free scrolling, no tap zones over the pages */
 .reader-view.orig-mode .tap-zone { display: none; }
 .pdf-original-container {
-  touch-action: pan-x pan-y pinch-zoom;
+  touch-action: pan-x pan-y;
+  align-items: flex-start;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   position: relative;
   z-index: 1;
 }
+
+.reader-view.orig-mode .pdf-page-canvas-wrap { margin-left: auto; margin-right: auto; max-width: none; }
+.reader-view.orig-mode .pdf-page-canvas-wrap canvas { max-width: none; }
