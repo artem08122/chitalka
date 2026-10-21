@@ -616,7 +616,6 @@ html, body {
   column-gap: calc(var(--reader-margin-inline) * 2);
   column-fill: auto;
   overflow-x: hidden;
-  transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.4, 1);
 }
 
 /* Mode: Scroll (Continuous reading) */
