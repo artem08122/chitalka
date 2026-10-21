@@ -704,6 +704,7 @@ mark.book-highlight.color-blue { background-color: #bfdbfe; }
 }
 
 .pdf-page-canvas-wrap {
+  flex-shrink: 0;
   margin-bottom: 14px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   background: #ffffff;
