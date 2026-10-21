@@ -1,4 +1,4 @@
-const CACHE_NAME = 'antigravity-reader-v5';
+const CACHE_NAME = 'antigravity-reader-v6';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
