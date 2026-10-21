@@ -97,6 +97,49 @@ class CloudSync {
     return lower.split('.').pop() || 'bin';
   }
 
+  /** Debounced upload of reading progress (progress/<id>.json). */
+  pushProgress(id, progress) {
+    if (!this.enabled || !progress) return;
+    this._pp = this._pp || {};
+    this._pp[id] = progress;
+    clearTimeout(this._ppT);
+    this._ppT = setTimeout(() => this.flushProgress(), 4000);
+  }
+
+  async flushProgress() {
+    clearTimeout(this._ppT);
+    const q = this._pp || {};
+    this._pp = {};
+    for (const id of Object.keys(q)) {
+      try { await this.put(`progress/${id}.json`, b64FromText(JSON.stringify(q[id])), `progress ${id}`); }
+      catch (e) { console.warn('progress push failed', id, e); }
+    }
+  }
+
+  /** Apply newer remote progress to local books. Returns count applied. */
+  async pullProgress(storage, localBooks) {
+    let n = 0;
+    const items = (await this.list('progress')).filter(i => i.name.endsWith('.json'));
+    for (const item of items) {
+      const id = item.name.replace(/\.json$/, '');
+      const book = localBooks.find(b => b.id === id);
+      if (!book) continue;
+      try {
+        const r = await this.req(`progress/${id}.json`, { raw: true });
+        if (!r.ok) continue;
+        const remote = await r.json();
+        if ((remote.lastReadAt || 0) > (book.progress?.lastReadAt || 0)) {
+          book.progress = remote;
+          if (remote.percent >= 98) book.status = 'completed';
+          else if (book.status === 'not_started') book.status = 'reading';
+          await storage.saveBook(book);
+          n++;
+        }
+      } catch (e) { console.warn('progress pull failed', id, e); }
+    }
+    return n;
+  }
+
   /** Upload a book (original file + meta). */
   async push(id, fileName, arrayBuffer, shelfId) {
     if (!this.enabled) return false;
@@ -139,6 +182,7 @@ class CloudSync {
     this.busy = true;
     let down = 0;
     let up = 0;
+    let prog = 0;
     try {
       const remoteMeta = (await this.list('meta')).filter(i => i.name.endsWith('.json'));
       const remoteIds = new Set(remoteMeta.map(i => i.name.replace(/\.json$/, '')));
@@ -178,10 +222,12 @@ class CloudSync {
           up++;
         } catch (e) { console.warn('cloud upload failed', b.id, e); }
       }
+
+      try { prog = await this.pullProgress(storage, await storage.getAllBooks()); } catch (e) { console.warn('progress sync failed', e); }
     } finally {
       this.busy = false;
     }
-    return { down, up };
+    return { down, up, prog };
   }
 
   /** Small token dialog (no dependency on index.html markup). */
@@ -208,3 +254,4 @@ class CloudSync {
 }
 
 export const cloud = new CloudSync();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.flushProgress(); });

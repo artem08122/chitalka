@@ -4,6 +4,7 @@
  * TOC navigation, in-book search, bookmarks, highlights, and PDF switching.
  */
 import { storage } from './storage.js';
+import { cloud } from './cloud.js';
 
 export class ReaderController {
   constructor(app) {
@@ -39,6 +40,7 @@ export class ReaderController {
 
     this.currentChapterIndex = savedChapterIndex !== null ? savedChapterIndex : (book.progress?.chapterIndex || 0);
     this.currentPageIndex = book.progress?.pageIndex || 0;
+    this._pendingFrac = (book.progress && typeof book.progress.frac === 'number') ? book.progress.frac : null;
     this.pdfMode = book.settings?.pdfMode || (book.format === 'pdf' ? 'reformat' : 'reformat');
 
     // Title
@@ -113,6 +115,10 @@ export class ReaderController {
       this.content.style.transform = 'none';
       this.content.scrollLeft = 0;
       this.calculatePagination();
+      if (this._pendingFrac != null) {
+        this.currentPageIndex = Math.min(this.totalPagesInChapter - 1, Math.floor(this._pendingFrac * this.totalPagesInChapter));
+        this._pendingFrac = null;
+      }
       this.goToPage(this.currentPageIndex);
     } else {
       this.content.classList.remove('mode-paginate');
@@ -287,11 +293,13 @@ export class ReaderController {
       chapterIndex: this.currentChapterIndex,
       pageIndex: this.currentPageIndex,
       totalPages: this.totalPagesInChapter,
+      frac: this.totalPagesInChapter > 0 ? this.currentPageIndex / this.totalPagesInChapter : 0,
       percent,
       lastReadAt: Date.now()
     };
 
     storage.saveBook(this.book);
+    cloud.pushProgress(this.book.id, this.book.progress);
   }
 
   // --- Typography & Appearance Settings ---

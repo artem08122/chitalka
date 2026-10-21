@@ -104,6 +104,9 @@ export class LibraryController {
       actions.insertBefore(btn, actions.firstChild);
     }
     await cloud.init();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && cloud.enabled && this.app.currentView !== 'reader') this.syncCloud(false);
+    });
     if (cloud.enabled) {
       this.syncCloud(false);
     } else {
@@ -125,7 +128,7 @@ export class LibraryController {
     try {
       if (manual) this.app.toast('Синхронизация…');
       const res = await cloud.sync(storage, parseBookFile, (m) => { if (manual) this.app.toast(m); });
-      if (res.down || res.up) {
+      if (res.down || res.up || res.prog) {
         await this.loadBooks();
         this.render();
       }
