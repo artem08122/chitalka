@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Читалка</title>
+  
+  <!-- Telegram WebApp SDK -->
+  <script src="./vendor/telegram-web-app.js"></script>
+
+  <!-- Vendor Parsers -->
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./vendor/pdf.min.js"></script>
+  <script src="./vendor/mammoth.browser.min.js"></script>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#ffffff">
+
+  <!-- Fonts & Stylesheet -->
+  <link rel="stylesheet" href="./css/reader.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Brightness Night Overlay -->
+    <div id="brightness-overlay" class="brightness-overlay"></div>
+
+    <!-- ========================================================
+         VIEW 1: LIBRARY
+         ======================================================== -->
+    <div id="library-view" class="view">
+      <header class="library-header">
+        <div class="library-top-bar">
+          <h1 class="library-title">Читалка</h1>
+          <div class="library-actions">
+            <button id="add-book-btn" class="icon-btn primary" title="Добавить книгу">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="search-bar-wrap">
+          <span class="search-icon-fixed">🔍</span>
+          <input type="text" id="library-search-input" class="search-input" placeholder="Поиск по названию или автору...">
+        </div>
+
+        <!-- Horizontal Shelves Bar -->
+        <div id="shelves-bar" class="shelves-bar">
+          <!-- Populated by JS -->
+        </div>
+      </header>
+
+      <!-- Subbar: Filters & Sort -->
+      <div class="library-subbar">
+        <div class="filter-pills">
+          <span class="filter-pill active" data-filter="all">Все</span>
+          <span class="filter-pill" data-filter="reading">Читаю</span>
+          <span class="filter-pill" data-filter="completed">Прочитано</span>
+          <span class="filter-pill" data-filter="not_started">Не начато</span>
+        </div>
+        <select id="sort-select" class="sort-select">
+          <option value="recent">Недавние</option>
+          <option value="title">По названию</option>
+          <option value="author">По автору</option>
+          <option value="date_added">По дате добавления</option>
+        </select>
+      </div>
+
+      <!-- Books Grid & Empty State -->
+      <main class="library-content">
+        <div id="books-grid" class="books-grid">
+          <!-- Populated by JS -->
+        </div>
+
+        <div id="library-empty-state" class="library-empty-state" style="display: none;">
+          <div class="empty-icon">📚</div>
+          <h2 class="empty-title">В библиотеке пусто</h2>
+          <p class="empty-desc">Добавьте книги в любом формате: EPUB, FB2, PDF, TXT или DOCX.</p>
+          <button id="empty-add-btn" class="empty-btn">+ Добавить первую книгу</button>
+        </div>
+      </main>
+
+      <!-- Hidden Multi-file input -->
+      <input type="file" id="book-file-input" multiple accept=".epub,.fb2,.fb2.zip,.pdf,.docx,.txt,.rtf,.html,.htm" style="display: none;">
+    </div>
+
+    <!-- ========================================================
+         VIEW 2: READER
+         ======================================================== -->
+    <div id="reader-view" class="view reader-view hidden">
+      <!-- Floating Top Header -->
+      <header id="reader-header" class="reader-header">
+        <div class="reader-header-left">
+          <button id="reader-back-btn" class="icon-btn" title="В библиотеку">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          </button>
+          <button id="btn-open-toc" class="icon-btn" title="Оглавление">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+        </div>
+
+        <div id="reader-book-title" class="reader-header-center">Книга</div>
+
+        <div class="reader-header-right">
+          <!-- Mode Switcher (PDF Reformat / Original) -->
+          <button id="reader-mode-toggle" class="reader-mode-toggle" style="display: none;">
+            <span>📄 Реформат</span>
+          </button>
+          <button id="btn-open-search" class="icon-btn" title="Поиск в книге">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </button>
+          <button id="btn-bookmark" class="icon-btn" title="Закладка">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+          </button>
+          <button id="btn-open-settings" class="icon-btn" title="Настройки шрифта и темы">
+            <span style="font-family:serif;font-weight:700;font-size:15px">Aa</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Reader Body -->
+      <div class="reader-body-wrap">
+        <!-- Tap Navigation Zones -->
+        <div id="tap-left" class="tap-zone left"></div>
+        <div id="tap-center" class="tap-zone center"></div>
+        <div id="tap-right" class="tap-zone right"></div>
+
+        <!-- Reflowed Reading Content -->
+        <main id="reader-content" class="reader-content mode-paginate"></main>
+
+        <!-- Original PDF Canvas Container (when toggled) -->
+        <div id="pdf-original-container" class="pdf-original-container" style="display: none;"></div>
+      </div>
+
+      <!-- Floating Bottom Scrubber & Progress Footer -->
+      <footer id="reader-footer" class="reader-footer">
+        <div class="reader-slider-row">
+          <input type="range" id="reader-chapter-range" class="reader-range" min="0" max="100" value="0">
+        </div>
+        <div class="reader-progress-info">
+          <span id="reader-progress-text">Глава 1 • 0%</span>
+          <span id="reader-time-left">~0 мин осталось</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- ========================================================
+         FLOATING TEXT SELECTION TOOLBAR
+         ======================================================== -->
+    <div id="selection-toolbar" class="selection-toolbar" style="display: none;">
+      <button class="highlight-color-dot yellow" data-color="yellow" title="Жёлтый маркер"></button>
+      <button class="highlight-color-dot green" data-color="green" title="Зелёный маркер"></button>
+      <button class="highlight-color-dot pink" data-color="pink" title="Розовый маркер"></button>
+      <button class="highlight-color-dot blue" data-color="blue" title="Синий маркер"></button>
+      <button id="btn-copy-selection" class="icon-btn" style="width:28px;height:28px;font-size:12px" title="Копировать">📋</button>
+    </div>
+
+    <!-- ========================================================
+         MODAL 1: TABLE OF CONTENTS & BOOKMARKS
+         ======================================================== -->
+    <div id="toc-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div class="segmented-control" style="width:230px">
+            <button id="tab-toc-btn" class="segmented-btn active">Оглавление</button>
+            <button id="tab-bm-btn" class="segmented-btn">Закладки</button>
+          </div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+        <div id="toc-list" class="toc-list-wrap"></div>
+        <div id="bookmarks-list" class="toc-list-wrap" style="display: none;"></div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 2: APPEARANCE & TYPOGRAPHY SETTINGS
+         ======================================================== -->
+    <div id="settings-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div class="sheet-title">Оформление</div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+
+        <!-- Brightness Slider -->
+        <div class="setting-group">
+          <div class="setting-label">Яркость</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span>🔅</span>
+            <input type="range" id="brightness-range" class="reader-range" min="30" max="100" value="100">
+            <span>🔆</span>
+          </div>
+        </div>
+
+        <!-- Themes -->
+        <div class="setting-group">
+          <div class="setting-label">Тема оформления</div>
+          <div class="theme-picker-row">
+            <button class="theme-opt-btn" data-theme-choice="light">Светлая</button>
+            <button class="theme-opt-btn" data-theme-choice="sepia">Сепия</button>
+            <button class="theme-opt-btn" data-theme-choice="dark">Тёмная</button>
+            <button class="theme-opt-btn" data-theme-choice="amoled">AMOLED</button>
+          </div>
+        </div>
+
+        <!-- Font Size -->
+        <div class="setting-group">
+          <div class="setting-label">Размер текста</div>
+          <div class="font-size-adjuster">
+            <button id="btn-font-dec">A-</button>
+            <span id="font-size-val" style="flex:1;text-align:center;font-weight:600">18px</span>
+            <button id="btn-font-inc">A+</button>
+          </div>
+        </div>
+
+        <!-- Font Family -->
+        <div class="setting-group">
+          <div class="setting-label">Шрифт</div>
+          <div class="segmented-control">
+            <button class="segmented-btn font-family-btn active" data-font="serif" style="font-family:serif">С засечками</button>
+            <button class="segmented-btn font-family-btn" data-font="sans" style="font-family:sans-serif">Без засечек</button>
+            <button class="segmented-btn font-family-btn" data-font="dyslexic">Комфортный</button>
+          </div>
+        </div>
+
+        <!-- Reading Mode -->
+        <div class="setting-group">
+          <div class="setting-label">Режим чтения</div>
+          <div class="segmented-control">
+            <button class="segmented-btn reading-mode-btn active" data-mode="paginate">📖 По страницам</button>
+            <button class="segmented-btn reading-mode-btn" data-mode="scroll">📜 Свитком</button>
+          </div>
+        </div>
+
+        <!-- Margins & Alignment -->
+        <div class="setting-group">
+          <div class="setting-label">Поля и выравнивание</div>
+          <div style="display:flex;gap:8px">
+            <div class="segmented-control" style="flex:1">
+              <button class="segmented-btn margin-btn" data-margin="compact">Узкие</button>
+              <button class="segmented-btn margin-btn active" data-margin="normal">Обычные</button>
+              <button class="segmented-btn margin-btn" data-margin="spacious">Широкие</button>
+            </div>
+            <div class="segmented-control" style="width:100px">
+              <button class="segmented-btn align-btn active" data-align="justify" title="По ширине">≡</button>
+              <button class="segmented-btn align-btn" data-align="left" title="По левому краю">≣</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 3: IN-BOOK SEARCH
+         ======================================================== -->
+    <div id="search-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div class="sheet-title">Поиск по книге</div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+        <div class="search-bar-wrap">
+          <span class="search-icon-fixed">🔍</span>
+          <input type="text" id="book-search-input" class="search-input" placeholder="Введите слово или фразу...">
+        </div>
+        <div id="search-results-list" class="search-results-list"></div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 4: ADD SHELF
+         ======================================================== -->
+    <div id="add-shelf-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div class="sheet-title">Новая полка</div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Название</div>
+          <input type="text" id="new-shelf-name" class="search-input" placeholder="Например: Маркетинг, Финансы..." style="padding-left:14px">
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Иконка (эмодзи)</div>
+          <div style="display:flex;gap:10px;font-size:24px;cursor:pointer">
+            <span class="emoji-opt selected">📈</span>
+            <span class="emoji-opt">🧠</span>
+            <span class="emoji-opt">💼</span>
+            <span class="emoji-opt">🚀</span>
+            <span class="emoji-opt">🎯</span>
+            <span class="emoji-opt">💰</span>
+            <span class="emoji-opt">💡</span>
+            <span class="emoji-opt">📚</span>
+          </div>
+        </div>
+        <button id="save-new-shelf-btn" class="empty-btn" style="width:100%;margin-top:10px">Создать полку</button>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 5: BOOK CONTEXT MENU
+         ======================================================== -->
+    <div id="book-menu-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div>
+            <div id="book-menu-title" class="sheet-title">Книга</div>
+            <div id="book-menu-author" style="font-size:12px;color:var(--text-secondary);margin-top:2px">Автор</div>
+          </div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+        <div class="book-dialog-actions">
+          <button id="book-menu-move" class="dialog-action-btn">
+            <span>📁</span><span>Переместить на полку...</span>
+          </button>
+          <button id="book-menu-status" class="dialog-action-btn">
+            <span>✅</span><span>Переключить статус (Читаю / Прочитано)</span>
+          </button>
+          <button id="book-menu-delete" class="dialog-action-btn danger">
+            <span>🗑️</span><span>Удалить из библиотеки</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 6: MOVE TO SHELF
+         ======================================================== -->
+    <div id="move-shelf-modal" class="modal-backdrop">
+      <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div class="sheet-title">Выберите полку</div>
+          <button class="sheet-close-btn">✕</button>
+        </div>
+        <div id="move-shelf-list" class="book-dialog-actions"></div>
+      </div>
+    </div>
+
+    <!-- App Toast -->
+    <div id="app-toast" style="position:fixed;bottom:24px;left:50%;transform:translate(-50%,10px);background:rgba(0,0,0,0.85);color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;font-weight:500;opacity:0;pointer-events:none;transition:all 0.25s ease;z-index:9999;backdrop-filter:blur(8px)"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);backdrop-filter:blur(5px);z-index:99999;flex-direction:column;align-items:center;justify-content:center;color:#fff">
+      <div style="font-size:32px;animation:spin 1s linear infinite;margin-bottom:12px">⏳</div>
+      <div id="loading-text" style="font-size:16px;font-weight:600">Загрузка книги...</div>
+    </div>
+  </div>
+
+  <!-- Main Application Script (ESM) -->
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

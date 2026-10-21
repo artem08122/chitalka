@@ -1,0 +1,21 @@
+{
+  "name": "Читалка",
+  "short_name": "Читалка",
+  "description": "Удобная читалка книг для Telegram с поддержкой любых форматов и полок",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
