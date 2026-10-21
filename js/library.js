@@ -104,7 +104,21 @@ export class LibraryController {
       actions.insertBefore(btn, actions.firstChild);
     }
     await cloud.init();
-    if (cloud.enabled) this.syncCloud(false);
+    if (cloud.enabled) {
+      this.syncCloud(false);
+    } else {
+      // First launch on this device: offer to connect the cloud once
+      let asked = false;
+      try { asked = localStorage.getItem('agy_cloud_asked') === '1'; } catch (e) { /* ignore */ }
+      if (!asked) {
+        try { localStorage.setItem('agy_cloud_asked', '1'); } catch (e) { /* ignore */ }
+        const t = await cloud.askToken();
+        if (t) {
+          cloud.setToken(t);
+          await this.syncCloud(true);
+        }
+      }
+    }
   }
 
   async syncCloud(manual) {
