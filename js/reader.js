@@ -87,10 +87,12 @@ export class ReaderController {
     if (this.book.format === 'pdf' && this.pdfMode === 'original') {
       this.content.style.display = 'none';
       this.pdfOriginalContainer.style.display = 'flex';
+      this.view.classList.add('orig-mode');
       await this.renderOriginalPdfPages();
     } else {
       this.content.style.display = 'block';
       this.pdfOriginalContainer.style.display = 'none';
+      this.view.classList.remove('orig-mode');
       if (this._origObserver) { this._origObserver.disconnect(); this._origObserver = null; }
       await this.renderChapter(this.currentChapterIndex);
     }
@@ -150,6 +152,7 @@ export class ReaderController {
   }
 
   nextPage() {
+    if (this.pdfMode === 'original' && this.book?.format === 'pdf') { this.pdfOriginalContainer.scrollBy({ top: this.pdfOriginalContainer.clientHeight * 0.85, behavior: 'smooth' }); return; }
     if (this.settings.readingMode === 'paginate') {
       if (this.currentPageIndex < this.totalPagesInChapter - 1) {
         this.goToPage(this.currentPageIndex + 1);
@@ -164,6 +167,7 @@ export class ReaderController {
   }
 
   prevPage() {
+    if (this.pdfMode === 'original' && this.book?.format === 'pdf') { this.pdfOriginalContainer.scrollBy({ top: -this.pdfOriginalContainer.clientHeight * 0.85, behavior: 'smooth' }); return; }
     if (this.settings.readingMode === 'paginate') {
       if (this.currentPageIndex > 0) {
         this.goToPage(this.currentPageIndex - 1);
@@ -251,13 +255,43 @@ export class ReaderController {
       wraps.forEach(w => this._origObserver.observe(w));
 
       // Jump to the saved position
-      const pct = this.book.progress?.percent || 0;
+      const pct = this.book.progress?.origFrac != null ? this.book.progress.origFrac * 100 : (this.book.progress?.percent || 0);
       if (pct > 0 && pct < 99) {
-        requestAnimationFrame(() => { container.scrollTop = (pct / 100) * container.scrollHeight; });
+        requestAnimationFrame(() => { container.scrollTop = (pct / 100) * (container.scrollHeight - container.clientHeight); });
       }
+      this._origTotal = pdf.numPages;
+      if (!this._origScrollBound) {
+        this._origScrollBound = true;
+        let t = null;
+        container.addEventListener('scroll', () => {
+          if (t) return;
+          t = setTimeout(() => { t = null; this.onOriginalScroll(); }, 150);
+        }, { passive: true });
+        let moved = false, sx = 0, sy = 0;
+        container.addEventListener('touchstart', (e) => { moved = false; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+        container.addEventListener('touchmove', (e) => { if (Math.abs(e.touches[0].clientY - sy) > 8 || Math.abs(e.touches[0].clientX - sx) > 8) moved = true; }, { passive: true });
+        container.addEventListener('click', () => { if (!moved) this.toggleBars(); });
+      }
+      this.onOriginalScroll();
     } catch (e) {
       this.pdfOriginalContainer.innerHTML = `<div style="padding:20px;color:red;">Ошибка загрузки оригинала: ${e.message}</div>`;
     }
+  }
+
+  origInfo() {
+    const c = this.pdfOriginalContainer;
+    const max = Math.max(1, c.scrollHeight - c.clientHeight);
+    const frac = Math.min(1, Math.max(0, c.scrollTop / max));
+    const total = this._origTotal || 1;
+    const page = Math.min(total, Math.max(1, Math.round(frac * (total - 1)) + 1));
+    return { frac, total, page };
+  }
+
+  onOriginalScroll() {
+    if (!this.book || this.pdfMode !== 'original') return;
+    this.updateFooterInfo();
+    clearTimeout(this._origSaveT);
+    this._origSaveT = setTimeout(() => this.saveProgress(), 800);
   }
 
   togglePdfMode() {
@@ -293,6 +327,14 @@ export class ReaderController {
     if (!this.book) return;
 
     const totalChapters = this.book.chapters?.length || 1;
+    if (this.book.format === 'pdf' && this.pdfMode === 'original') {
+      const o = this.origInfo();
+      this.progressText.textContent = `Стр. ${o.page} из ${o.total}`;
+      this.progressBar.value = Math.round(o.frac * 100);
+      const left = Math.ceil(o.total * (1 - o.frac) * 1.5);
+      this.timeLeftText.textContent = left > 0 ? `~${left} мин осталось` : 'Прочитано';
+      return;
+    }
     const chNum = this.currentChapterIndex + 1;
 
     // Calculate percentage
@@ -325,6 +367,19 @@ export class ReaderController {
 
   saveProgress() {
     if (!this.book) return;
+
+    if (this.book.format === 'pdf' && this.pdfMode === 'original' && this._origTotal) {
+      const o = this.origInfo();
+      this.book.progress = {
+        ...(this.book.progress || {}),
+        origFrac: o.frac,
+        percent: Math.round(o.frac * 100),
+        lastReadAt: Date.now()
+      };
+      storage.saveBook(this.book);
+      cloud.pushProgress(this.book.id, this.book.progress);
+      return;
+    }
 
     const totalChapters = this.book.chapters?.length || 1;
     let percent = Math.round((this.currentChapterIndex / totalChapters) * 100);
@@ -514,6 +569,11 @@ export class ReaderController {
 
     // Scrubber
     this.progressBar?.addEventListener('input', (e) => {
+      if (this.pdfMode === 'original' && this.book?.format === 'pdf') {
+        const c = this.pdfOriginalContainer;
+        c.scrollTop = (parseInt(e.target.value, 10) / 100) * (c.scrollHeight - c.clientHeight);
+        return;
+      }
       const targetPercent = parseInt(e.target.value, 10);
       const totalCh = this.book.chapters?.length || 1;
       const targetChapter = Math.min(totalCh - 1, Math.floor((targetPercent / 100) * totalCh));
