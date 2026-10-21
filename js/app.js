@@ -5,6 +5,7 @@
 import { LibraryController } from './library.js';
 import { ReaderController } from './reader.js';
 import { storage } from './storage.js';
+import { cloud } from './cloud.js';
 
 class AntigravityReaderApp {
   constructor() {
@@ -190,6 +191,7 @@ class AntigravityReaderApp {
       if (!this.selectedBookForMenu) return;
       if (confirm(`Удалить «${this.selectedBookForMenu.title}» из библиотеки?`)) {
         await storage.deleteBook(this.selectedBookForMenu.id);
+        cloud.removeBook(this.selectedBookForMenu.id);
         this.closeModal('book-menu-modal');
         this.library.refresh();
         this.toast('Книга удалена');
@@ -294,6 +296,7 @@ class AntigravityReaderApp {
       row.innerHTML = `<span>${shelf.emoji || '📁'}</span><span>${shelf.name}</span> ${book.shelfId === shelf.id ? '✓' : ''}`;
       row.onclick = async () => {
         book.shelfId = shelf.id;
+        cloud.updateShelf(book.id, shelf.id);
         await storage.saveBook(book);
         this.closeModal('move-shelf-modal');
         this.library.refresh();

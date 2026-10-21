@@ -4,6 +4,7 @@
  */
 import { storage, DEFAULT_SHELVES } from './storage.js';
 import { parseBookFile } from './parsers/index.js';
+import { cloud } from './cloud.js';
 
 export class LibraryController {
   constructor(app) {
@@ -37,13 +38,17 @@ export class LibraryController {
     }
     
     this.render();
+    this.initCloud();
     window.__appReady = true;
     console.log('__APP_READY__ Books loaded:', this.books.length);
   }
 
   async syncFromServer() {
     try {
-      const res = await fetch('/api/books');
+      let res = await fetch('./samples/manifest.json');
+      if (!res.ok) {
+        res = await fetch('/api/books');
+      }
       if (!res.ok) return;
       const data = await res.json();
       if (data.books && data.books.length > 0) {
@@ -74,6 +79,51 @@ export class LibraryController {
       }
     } catch (e) {
       console.warn('Server sync error:', e);
+    }
+  }
+
+
+  async initCloud() {
+    // Cloud button in the header
+    const actions = document.querySelector('.library-actions');
+    if (actions && !document.getElementById('cloud-sync-btn')) {
+      const btn = document.createElement('button');
+      btn.id = 'cloud-sync-btn';
+      btn.className = 'icon-btn';
+      btn.title = 'Синхронизация книг';
+      btn.textContent = '☁';
+      btn.style.fontSize = '18px';
+      btn.addEventListener('click', async () => {
+        if (!cloud.enabled) {
+          const t = await cloud.askToken();
+          if (!t) return;
+          cloud.setToken(t);
+        }
+        await this.syncCloud(true);
+      });
+      actions.insertBefore(btn, actions.firstChild);
+    }
+    await cloud.init();
+    if (cloud.enabled) this.syncCloud(false);
+  }
+
+  async syncCloud(manual) {
+    try {
+      if (manual) this.app.toast('Синхронизация…');
+      const res = await cloud.sync(storage, parseBookFile, (m) => { if (manual) this.app.toast(m); });
+      if (res.down || res.up) {
+        await this.loadBooks();
+        this.render();
+      }
+      if (manual || res.down) this.app.toast(`☁ Скачано: ${res.down}, отправлено: ${res.up}`);
+    } catch (e) {
+      console.warn('cloud sync error', e);
+      if (manual) {
+        this.app.toast('Ошибка синхронизации: проверьте токен');
+        if (String(e.message).includes('401') || String(e.message).includes('403') || String(e.message).includes('404')) {
+          cloud.setToken('');
+        }
+      }
     }
   }
 
@@ -294,6 +344,11 @@ export class LibraryController {
 
         // Save book
         await storage.saveBook(parsedBook);
+
+        // Cloud sync (non-blocking)
+        parsedBook.fileName = file.name;
+        cloud.push(parsedBook.id, file.name, arrayBuf, parsedBook.shelfId)
+          .catch(e => console.warn('cloud push failed', e));
       } catch (err) {
         console.error('Error importing file:', file.name, err);
         alert(`Не удалось открыть «${file.name}»: ${err.message}`);
