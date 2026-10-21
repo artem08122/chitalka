@@ -201,7 +201,10 @@ export class ReaderController {
       this.pdfOriginalContainer.innerHTML = '';
       const container = this.pdfOriginalContainer;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cssW = Math.max(200, Math.min(window.innerWidth, container.clientWidth || window.innerWidth) - 20);
+      const baseW = Math.max(200, Math.min(window.innerWidth, container.clientWidth || window.innerWidth) - 20);
+      this._zoom = 1;
+      this._origBaseW = baseW;
+      const cssW = baseW;
 
       // Lazy rendering: placeholders for all pages, canvases only near the viewport
       const first = await pdf.getPage(1);
@@ -214,6 +217,7 @@ export class ReaderController {
         wrap.dataset.page = String(pNum);
         wrap.style.width = cssW + 'px';
         wrap.style.height = Math.round(cssW * ratio) + 'px';
+        wrap._ratio = ratio;
         container.appendChild(wrap);
         wraps.push(wrap);
       }
@@ -224,17 +228,28 @@ export class ReaderController {
         try {
           const page = await pdf.getPage(Number(wrap.dataset.page));
           const bvp = page.getViewport({ scale: 1.0 });
-          const scale = (cssW / bvp.width) * dpr;
+          const w = wrap.clientWidth || cssW;
+          let scale = (w / bvp.width) * dpr;
+          const maxPx = 12e6; // keep canvases within mobile memory limits
+          const px = bvp.width * scale * bvp.height * scale;
+          if (px > maxPx) scale *= Math.sqrt(maxPx / px);
           const vp = page.getViewport({ scale });
+          wrap._ratio = bvp.height / bvp.width;
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(vp.width);
           canvas.height = Math.floor(vp.height);
-          canvas.style.width = cssW + 'px';
-          canvas.style.height = Math.round(cssW * bvp.height / bvp.width) + 'px';
-          wrap.style.height = canvas.style.height;
+          canvas.style.width = '100%';
+          canvas.style.height = '100%';
+          wrap.style.height = Math.round(w * wrap._ratio) + 'px';
           await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
           if (wrap._wantFree) { canvas.width = canvas.height = 0; }
-          else { wrap.appendChild(canvas); wrap._done = true; }
+          else if (Math.abs(wrap.clientWidth - w) > 2) {
+            // zoom changed while rendering: drop this canvas and render again at the new size
+            canvas.width = canvas.height = 0;
+            wrap._busy = false;
+            render(wrap);
+            return;
+          } else { wrap.appendChild(canvas); wrap._done = true; }
         } catch (err) {
           console.warn('pdf page render failed', err);
         } finally { wrap._busy = false; }
@@ -271,10 +286,75 @@ export class ReaderController {
         container.addEventListener('touchstart', (e) => { moved = false; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
         container.addEventListener('touchmove', (e) => { if (Math.abs(e.touches[0].clientY - sy) > 8 || Math.abs(e.touches[0].clientX - sx) > 8) moved = true; }, { passive: true });
         container.addEventListener('click', () => { if (!moved) this.toggleBars(); });
+
+        // Pinch-to-zoom (two fingers) + ctrl/trackpad wheel zoom
+        let pinch = null;
+        const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        container.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 2) {
+            pinch = { d: dist(e.touches), z: this._zoom || 1 };
+            moved = true;
+          }
+        }, { passive: true });
+        container.addEventListener('touchmove', (e) => {
+          if (pinch && e.touches.length === 2) {
+            e.preventDefault();
+            const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            this.setOriginalZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy, false);
+          }
+        }, { passive: false });
+        const endPinch = (e) => {
+          if (pinch && e.touches.length < 2) { pinch = null; this.refreshOriginalCanvases(); }
+        };
+        container.addEventListener('touchend', endPinch, { passive: true });
+        container.addEventListener('touchcancel', endPinch, { passive: true });
+        let wheelT = null;
+        container.addEventListener('wheel', (e) => {
+          if (!e.ctrlKey) return;
+          e.preventDefault();
+          this.setOriginalZoom((this._zoom || 1) * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY, false);
+          clearTimeout(wheelT);
+          wheelT = setTimeout(() => this.refreshOriginalCanvases(), 250);
+        }, { passive: false });
       }
       this.onOriginalScroll();
     } catch (e) {
       this.pdfOriginalContainer.innerHTML = `<div style="padding:20px;color:red;">Ошибка загрузки оригинала: ${e.message}</div>`;
+    }
+  }
+
+  setOriginalZoom(z, cx, cy) {
+    const c = this.pdfOriginalContainer;
+    z = Math.max(1, Math.min(4, z));
+    const old = this._zoom || 1;
+    if (Math.abs(z - old) < 0.001) return;
+    const rect = c.getBoundingClientRect();
+    const ox = cx - rect.left, oy = cy - rect.top;
+    const fx = (c.scrollLeft + ox) / Math.max(1, c.scrollWidth);
+    const fy = (c.scrollTop + oy) / Math.max(1, c.scrollHeight);
+    this._zoom = z;
+    const w = this._origBaseW * z;
+    for (const wrap of c.children) {
+      if (!wrap.classList || !wrap.classList.contains('pdf-page-canvas-wrap')) continue;
+      wrap.style.width = w + 'px';
+      wrap.style.height = Math.round(w * (wrap._ratio || 1.4)) + 'px';
+    }
+    c.scrollLeft = fx * c.scrollWidth - ox;
+    c.scrollTop = fy * c.scrollHeight - oy;
+  }
+
+  /** Re-render visible pages sharply at the new zoom level. */
+  refreshOriginalCanvases() {
+    const c = this.pdfOriginalContainer;
+    if (!this._origObserver) return;
+    for (const wrap of c.children) {
+      if (!wrap.classList || !wrap.classList.contains('pdf-page-canvas-wrap')) continue;
+      const cv = wrap.querySelector('canvas');
+      if (cv) { cv.width = cv.height = 0; cv.remove(); }
+      wrap._done = false;
+      this._origObserver.unobserve(wrap);
+      this._origObserver.observe(wrap);
     }
   }
 
