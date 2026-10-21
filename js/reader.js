@@ -91,6 +91,7 @@ export class ReaderController {
     } else {
       this.content.style.display = 'block';
       this.pdfOriginalContainer.style.display = 'none';
+      if (this._origObserver) { this._origObserver.disconnect(); this._origObserver = null; }
       await this.renderChapter(this.currentChapterIndex);
     }
     this.updateFooterInfo();
@@ -188,28 +189,71 @@ export class ReaderController {
     }
 
     try {
-      const pdf = await window.pdfjsLib.getDocument({ data: rawData }).promise;
+      if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.js';
+      }
+      if (this._origObserver) { this._origObserver.disconnect(); this._origObserver = null; }
+      const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(rawData instanceof Blob ? await rawData.arrayBuffer() : rawData.slice(0)) }).promise;
       this.pdfOriginalContainer.innerHTML = '';
+      const container = this.pdfOriginalContainer;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cssW = Math.max(200, Math.min(window.innerWidth, container.clientWidth || window.innerWidth) - 20);
 
+      // Lazy rendering: placeholders for all pages, canvases only near the viewport
+      const first = await pdf.getPage(1);
+      const baseVp1 = first.getViewport({ scale: 1.0 });
+      const ratio = baseVp1.height / baseVp1.width;
+      const wraps = [];
       for (let pNum = 1; pNum <= pdf.numPages; pNum++) {
-        const page = await pdf.getPage(pNum);
-        // Mobile-fit scale (based on viewport width)
-        const baseVp = page.getViewport({ scale: 1.0 });
-        const scale = Math.min(2.0, (window.innerWidth - 20) / baseVp.width);
-        const vp = page.getViewport({ scale });
-
         const wrap = document.createElement('div');
         wrap.className = 'pdf-page-canvas-wrap';
+        wrap.dataset.page = String(pNum);
+        wrap.style.width = cssW + 'px';
+        wrap.style.height = Math.round(cssW * ratio) + 'px';
+        container.appendChild(wrap);
+        wraps.push(wrap);
+      }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = vp.width;
-        canvas.height = vp.height;
-        const ctx = canvas.getContext('2d');
+      const render = async (wrap) => {
+        if (wrap._busy || wrap._done) return;
+        wrap._busy = true;
+        try {
+          const page = await pdf.getPage(Number(wrap.dataset.page));
+          const bvp = page.getViewport({ scale: 1.0 });
+          const scale = (cssW / bvp.width) * dpr;
+          const vp = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.floor(vp.width);
+          canvas.height = Math.floor(vp.height);
+          canvas.style.width = cssW + 'px';
+          canvas.style.height = Math.round(cssW * bvp.height / bvp.width) + 'px';
+          wrap.style.height = canvas.style.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+          if (wrap._wantFree) { canvas.width = canvas.height = 0; }
+          else { wrap.appendChild(canvas); wrap._done = true; }
+        } catch (err) {
+          console.warn('pdf page render failed', err);
+        } finally { wrap._busy = false; }
+      };
+      const free = (wrap) => {
+        wrap._wantFree = true;
+        const c = wrap.querySelector('canvas');
+        if (c) { c.width = c.height = 0; c.remove(); }
+        wrap._done = false;
+      };
 
-        wrap.appendChild(canvas);
-        this.pdfOriginalContainer.appendChild(wrap);
+      this._origObserver = new IntersectionObserver((entries) => {
+        for (const en of entries) {
+          if (en.isIntersecting) { en.target._wantFree = false; render(en.target); }
+          else free(en.target);
+        }
+      }, { root: container, rootMargin: '150% 0px 150% 0px' });
+      wraps.forEach(w => this._origObserver.observe(w));
 
-        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      // Jump to the saved position
+      const pct = this.book.progress?.percent || 0;
+      if (pct > 0 && pct < 99) {
+        requestAnimationFrame(() => { container.scrollTop = (pct / 100) * container.scrollHeight; });
       }
     } catch (e) {
       this.pdfOriginalContainer.innerHTML = `<div style="padding:20px;color:red;">Ошибка загрузки оригинала: ${e.message}</div>`;
