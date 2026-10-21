@@ -1,4 +1,4 @@
-const CACHE_NAME = 'antigravity-reader-v4';
+const CACHE_NAME = 'antigravity-reader-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -43,19 +43,14 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   // Only cache same-origin GET requests (never GitHub API / Telegram calls)
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== self.location.origin) return;
-  // Stale-while-revalidate for local assets
+  // Network-first (bypass HTTP cache) so updates arrive at once; cache is the offline fallback
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch background update
-        fetch(e.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
+    fetch(e.request, { cache: 'reload' }).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200) {
+        const copy = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy));
       }
-      return fetch(e.request);
-    })
+      return networkResponse;
+    }).catch(() => caches.match(e.request))
   );
 });
