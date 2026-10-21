@@ -1,4 +1,4 @@
-const CACHE_NAME = 'antigravity-reader-v1';
+const CACHE_NAME = 'antigravity-reader-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
   './js/reader.js',
   './js/library.js',
   './js/storage.js',
+  './js/cloud.js',
   './js/parsers/index.js',
   './js/parsers/fb2.js',
   './js/parsers/epub.js',
@@ -40,6 +41,8 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  // Only cache same-origin GET requests (never GitHub API / Telegram calls)
+  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== self.location.origin) return;
   // Stale-while-revalidate for local assets
   e.respondWith(
     caches.match(e.request).then((cachedResponse) => {
